@@ -116,6 +116,9 @@ import (
 // The map's key type must be string; the object keys are used directly
 // as map keys.
 //
+// OrderedObject values encode as JSON objects.
+// The JSON keys are encoded in the order in which they appear in the OrderedObject.
+//
 // Pointer values encode as the value pointed to.
 // A nil pointer encodes as the null JSON object.
 //
@@ -350,6 +353,7 @@ func typeEncoder(t reflect.Type) encoderFunc {
 var (
 	marshalerType     = reflect.TypeOf(new(Marshaler)).Elem()
 	textMarshalerType = reflect.TypeOf(new(encoding.TextMarshaler)).Elem()
+	orderedObjectType = reflect.TypeOf(new(OrderedObject)).Elem()
 )
 
 // newTypeEncoder constructs an encoderFunc for a type.
@@ -371,6 +375,10 @@ func newTypeEncoder(t reflect.Type, allowAddr bool) encoderFunc {
 		if reflect.PtrTo(t).Implements(textMarshalerType) {
 			return newCondAddrEncoder(addrTextMarshalerEncoder, newTypeEncoder(t, false))
 		}
+	}
+
+	if t == orderedObjectType {
+		return orderedObjectEncoder
 	}
 
 	switch t.Kind() {
@@ -627,6 +635,24 @@ func newMapEncoder(t reflect.Type) encoderFunc {
 	}
 	me := &mapEncoder{typeEncoder(t.Elem())}
 	return me.encode
+}
+
+func orderedObjectEncoder(e *encodeState, v reflect.Value, quoted bool) {
+	if v.IsNil() {
+		e.WriteString("null")
+		return
+	}
+	e.WriteByte('{')
+	var ov OrderedObject = v.Interface().(OrderedObject)
+	for i, o := range ov {
+		if i > 0 {
+			e.WriteByte(',')
+		}
+		e.string(o.Key)
+		e.WriteByte(':')
+		e.reflectValue(reflect.ValueOf(o.Value))
+	}
+	e.WriteByte('}')
 }
 
 func encodeByteSlice(e *encodeState, v reflect.Value, _ bool) {
