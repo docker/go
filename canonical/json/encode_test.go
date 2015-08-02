@@ -586,3 +586,12 @@ func TestCanonicalization(t *testing.T) {
 		t.Errorf("got %s, want %s", string(output), expected)
 	}
 }
+
+func TestFloatError(t *testing.T) {
+	input := struct{ A float64 }{1.1}
+
+	_, err := Marshal(input)
+	if err == nil {
+		t.Errorf("want float error, got nil")
+	}
+}

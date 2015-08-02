@@ -36,14 +36,14 @@ type V struct {
 var ifaceNumAsFloat64 = map[string]interface{}{
 	"k1": float64(1),
 	"k2": "s",
-	"k3": []interface{}{float64(1), float64(2.0), float64(3e-3)},
+	"k3": []interface{}{float64(1), float64(2.0), float64(3)},
 	"k4": map[string]interface{}{"kk1": "s", "kk2": float64(2)},
 }
 
 var ifaceNumAsNumber = map[string]interface{}{
 	"k1": Number("1"),
 	"k2": "s",
-	"k3": []interface{}{Number("1"), Number("2.0"), Number("3e-3")},
+	"k3": []interface{}{Number("1"), Number("2.0"), Number("3")},
 	"k4": map[string]interface{}{"kk1": "s", "kk2": Number("2")},
 }
 
@@ -220,7 +220,7 @@ var unmarshalTests = []unmarshalTest{
 	// basic types
 	{in: `true`, ptr: new(bool), out: true},
 	{in: `1`, ptr: new(int), out: 1},
-	{in: `1.2`, ptr: new(float64), out: 1.2},
+	{in: `1.0`, ptr: new(float64), out: 1.0},
 	{in: `-5`, ptr: new(int16), out: int16(-5)},
 	{in: `2`, ptr: new(Number), out: Number("2"), useNumber: true},
 	{in: `2`, ptr: new(Number), out: Number("2")},
@@ -235,13 +235,13 @@ var unmarshalTests = []unmarshalTest{
 	{in: `{"x": 1}`, ptr: new(tx), out: tx{}},
 	{in: `{"F1":1,"F2":2,"F3":3}`, ptr: new(V), out: V{F1: float64(1), F2: int32(2), F3: Number("3")}},
 	{in: `{"F1":1,"F2":2,"F3":3}`, ptr: new(V), out: V{F1: Number("1"), F2: int32(2), F3: Number("3")}, useNumber: true},
-	{in: `{"k1":1,"k2":"s","k3":[1,2.0,3e-3],"k4":{"kk1":"s","kk2":2}}`, ptr: new(interface{}), out: ifaceNumAsFloat64},
-	{in: `{"k1":1,"k2":"s","k3":[1,2.0,3e-3],"k4":{"kk1":"s","kk2":2}}`, ptr: new(interface{}), out: ifaceNumAsNumber, useNumber: true},
+	{in: `{"k1":1,"k2":"s","k3":[1,2.0,3],"k4":{"kk1":"s","kk2":2}}`, ptr: new(interface{}), out: ifaceNumAsFloat64},
+	{in: `{"k1":1,"k2":"s","k3":[1,2.0,3],"k4":{"kk1":"s","kk2":2}}`, ptr: new(interface{}), out: ifaceNumAsNumber, useNumber: true},
 
 	// raw values with whitespace
 	{in: "\n true ", ptr: new(bool), out: true},
 	{in: "\t 1 ", ptr: new(int), out: 1},
-	{in: "\r 1.2 ", ptr: new(float64), out: 1.2},
+	{in: "\r 1.0 ", ptr: new(float64), out: 1.0},
 	{in: "\t -5 \n", ptr: new(int16), out: int16(-5)},
 	{in: "\t \"a\\u1234\" \n", ptr: new(string), out: "a\u1234"},
 
@@ -796,8 +796,8 @@ var allValue = All{
 	Uint32:  10,
 	Uint64:  11,
 	Uintptr: 12,
-	Float32: 14.1,
-	Float64: 15.1,
+	Float32: 14,
+	Float64: 15,
 	Foo:     "foo",
 	Foo2:    "foo2",
 	IntStr:  42,
@@ -818,7 +818,7 @@ var allValue = All{
 	ByteSlice:   []byte{27, 28, 29},
 	Small:       Small{Tag: "tag30"},
 	PSmall:      &Small{Tag: "tag31"},
-	Interface:   5.2,
+	Interface:   5.0,
 }
 
 var pallValue = All{
@@ -858,8 +858,8 @@ var allValueIndent = `{
 	"Uint32": 10,
 	"Uint64": 11,
 	"Uintptr": 12,
-	"Float32": 14.1,
-	"Float64": 15.1,
+	"Float32": 14,
+	"Float64": 15,
 	"bar": "foo",
 	"bar2": "foo2",
 	"IntStr": "42",
@@ -931,7 +931,7 @@ var allValueIndent = `{
 		"Tag": "tag31"
 	},
 	"PPSmall": null,
-	"Interface": 5.2,
+	"Interface": 5,
 	"PInterface": null
 }`
 
@@ -967,8 +967,8 @@ var pallValueIndent = `{
 	"PUint32": 10,
 	"PUint64": 11,
 	"PUintptr": 12,
-	"PFloat32": 14.1,
-	"PFloat64": 15.1,
+	"PFloat32": 14,
+	"PFloat64": 15,
 	"String": "",
 	"PString": "16",
 	"Map": null,
@@ -1020,7 +1020,7 @@ var pallValueIndent = `{
 		"Tag": "tag31"
 	},
 	"Interface": null,
-	"PInterface": 5.2
+	"PInterface": 5
 }`
 
 var pallValueCompact = strings.Map(noSpace, pallValueIndent)
@@ -1169,8 +1169,8 @@ func TestUnmarshalNulls(t *testing.T) {
 		Uint16:  9,
 		Uint32:  10,
 		Uint64:  11,
-		Float32: 12.1,
-		Float64: 13.1,
+		Float32: 12.0,
+		Float64: 13.0,
 		String:  "14"}
 
 	err := Unmarshal(jsonData, &nulls)
@@ -1179,7 +1179,7 @@ func TestUnmarshalNulls(t *testing.T) {
 	}
 	if !nulls.Bool || nulls.Int != 2 || nulls.Int8 != 3 || nulls.Int16 != 4 || nulls.Int32 != 5 || nulls.Int64 != 6 ||
 		nulls.Uint != 7 || nulls.Uint8 != 8 || nulls.Uint16 != 9 || nulls.Uint32 != 10 || nulls.Uint64 != 11 ||
-		nulls.Float32 != 12.1 || nulls.Float64 != 13.1 || nulls.String != "14" {
+		nulls.Float32 != 12.0 || nulls.Float64 != 13.0 || nulls.String != "14" {
 
 		t.Errorf("Unmarshal of null values affected primitives")
 	}
@@ -1327,13 +1327,13 @@ func TestPrefilled(t *testing.T) {
 	}{
 		{
 			in:  `{"X": 1, "Y": 2}`,
-			ptr: &XYZ{X: float32(3), Y: int16(4), Z: 1.5},
-			out: &XYZ{X: float64(1), Y: float64(2), Z: 1.5},
+			ptr: &XYZ{X: float32(3), Y: int16(4), Z: 1},
+			out: &XYZ{X: float64(1), Y: float64(2), Z: 1},
 		},
 		{
 			in:  `{"X": 1, "Y": 2}`,
-			ptr: ptrToMap(map[string]interface{}{"X": float32(3), "Y": int16(4), "Z": 1.5}),
-			out: ptrToMap(map[string]interface{}{"X": float64(1), "Y": float64(2), "Z": 1.5}),
+			ptr: ptrToMap(map[string]interface{}{"X": float32(3), "Y": int16(4), "Z": 1}),
+			out: ptrToMap(map[string]interface{}{"X": float64(1), "Y": float64(2), "Z": 1}),
 		},
 	}
 

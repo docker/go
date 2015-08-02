@@ -14,7 +14,7 @@ import (
 	"bytes"
 	"encoding"
 	"encoding/base64"
-	"encoding/json"
+	"fmt"
 	"math"
 	"reflect"
 	"runtime"
@@ -512,8 +512,11 @@ type floatEncoder int // number of bits
 
 func (bits floatEncoder) encode(e *encodeState, v reflect.Value, quoted bool) {
 	f := v.Float()
-	if math.IsInf(f, 0) || math.IsNaN(f) {
-		e.error(&UnsupportedValueError{v, strconv.FormatFloat(f, 'g', -1, int(bits))})
+	if math.IsInf(f, 0) || math.IsNaN(f) || math.Floor(f) != f {
+		e.error(&UnsupportedValueError{
+			v,
+			fmt.Sprintf("floating point number, %s", strconv.FormatFloat(f, 'g', -1, int(bits))),
+		})
 	}
 	b := strconv.AppendFloat(e.scratch[:0], f, 'g', -1, int(bits))
 	if quoted {
@@ -619,7 +622,7 @@ func canonicalEncoder(e *encodeState, v reflect.Value, _ bool) {
 	b = bytes.TrimSpace(b)
 	if len(b) > 0 && b[0] == '{' {
 		var temp interface{}
-		err = json.Unmarshal(b, &temp)
+		err = Unmarshal(b, &temp)
 		if err != nil {
 			e.error(&MarshalerError{v.Type(), err})
 		}
