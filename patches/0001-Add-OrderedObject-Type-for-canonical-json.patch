@@ -1,0 +1,439 @@
+From 8439c0572954d57f6a25c55232b7b49ca4fbf693 Mon Sep 17 00:00:00 2001
+From: Jessica Frazelle <acidburn@docker.com>
+Date: Sat, 1 Aug 2015 16:33:26 -0700
+Subject: [PATCH 1/2] Add OrderedObject Type for canonical json
+
+Signed-off-by: Jessica Frazelle <acidburn@docker.com>
+---
+ canonical/json/decode.go       | 38 +++++++++++++++--------
+ canonical/json/decode_test.go  | 69 +++++++++++++++++++++++++++++++++++++++---
+ canonical/json/encode.go       | 26 ++++++++++++++++
+ canonical/json/encode_test.go  | 33 ++++++++++++++++++++
+ canonical/json/example_test.go | 43 +++++++++++++++++++++++++-
+ canonical/json/stream.go       | 53 ++++++++++++++++++++++++++++++++
+ 6 files changed, 244 insertions(+), 18 deletions(-)
+
+diff --git a/canonical/json/decode.go b/canonical/json/decode.go
+index 705bc2e..41f12d9 100644
+--- a/canonical/json/decode.go
++++ b/canonical/json/decode.go
+@@ -168,12 +168,13 @@ func (n Number) Int64() (int64, error) {
+ 
+ // decodeState represents the state while decoding a JSON value.
+ type decodeState struct {
+-	data       []byte
+-	off        int // read offset in data
+-	scan       scanner
+-	nextscan   scanner // for calls to nextValue
+-	savedError error
+-	useNumber  bool
++	data             []byte
++	off              int // read offset in data
++	scan             scanner
++	nextscan         scanner // for calls to nextValue
++	savedError       error
++	useNumber        bool
++	useOrderedObject bool
+ }
+ 
+ // errPhase is used for errors that should not happen unless
+@@ -492,9 +493,13 @@ func (d *decodeState) object(v reflect.Value) {
+ 	}
+ 	v = pv
+ 
++	// If we are decoding into a OrderedObject then use an OrderedObject
++	// just for this particular object even if UseOrderedObject was not called.
++	forceOrderedObject := v.Type() == orderedObjectType
++
+ 	// Decoding into nil interface?  Switch to non-reflect code.
+-	if v.Kind() == reflect.Interface && v.NumMethod() == 0 {
+-		v.Set(reflect.ValueOf(d.objectInterface()))
++	if (v.Kind() == reflect.Interface && v.NumMethod() == 0) || forceOrderedObject {
++		v.Set(reflect.ValueOf(d.objectInterface(forceOrderedObject)))
+ 		return
+ 	}
+ 
+@@ -831,7 +836,7 @@ func (d *decodeState) valueInterface() interface{} {
+ 	case scanBeginArray:
+ 		return d.arrayInterface()
+ 	case scanBeginObject:
+-		return d.objectInterface()
++		return d.objectInterface(false)
+ 	case scanBeginLiteral:
+ 		return d.literalInterface()
+ 	}
+@@ -865,9 +870,10 @@ func (d *decodeState) arrayInterface() []interface{} {
+ 	return v
+ }
+ 
+-// objectInterface is like object but returns map[string]interface{}.
+-func (d *decodeState) objectInterface() map[string]interface{} {
++// objectInterface is like object but returns map[string]interface{} or []OrderedObject.
++func (d *decodeState) objectInterface(forceOrderedObject bool) interface{} {
+ 	m := make(map[string]interface{})
++	v := make(OrderedObject, 0)
+ 	for {
+ 		// Read opening " of string key or closing }.
+ 		op := d.scanWhile(scanSkipSpace)
+@@ -897,7 +903,11 @@ func (d *decodeState) objectInterface() map[string]interface{} {
+ 		}
+ 
+ 		// Read value.
+-		m[key] = d.valueInterface()
++		if d.useOrderedObject || forceOrderedObject {
++			v = append(v, Member{Key: key, Value: d.valueInterface()})
++		} else {
++			m[key] = d.valueInterface()
++		}
+ 
+ 		// Next token must be , or }.
+ 		op = d.scanWhile(scanSkipSpace)
+@@ -908,6 +918,10 @@ func (d *decodeState) objectInterface() map[string]interface{} {
+ 			d.error(errPhase)
+ 		}
+ 	}
++
++	if d.useOrderedObject || forceOrderedObject {
++		return v
++	}
+ 	return m
+ }
+ 
+diff --git a/canonical/json/decode_test.go b/canonical/json/decode_test.go
+index 7235969..bbdd004 100644
+--- a/canonical/json/decode_test.go
++++ b/canonical/json/decode_test.go
+@@ -197,11 +197,12 @@ type S13 struct {
+ }
+ 
+ type unmarshalTest struct {
+-	in        string
+-	ptr       interface{}
+-	out       interface{}
+-	err       error
+-	useNumber bool
++	in               string
++	ptr              interface{}
++	out              interface{}
++	err              error
++	useNumber        bool
++	useOrderedObject bool
+ }
+ 
+ type Ambig struct {
+@@ -413,6 +414,39 @@ var unmarshalTests = []unmarshalTest{
+ 		ptr: &map[time.Time]string{},
+ 		err: &UnmarshalTypeError{"object", reflect.TypeOf(map[time.Time]string{})},
+ 	},
++
++	// OrderedObject tests - into interface{}
++	{in: `{"a":"1","b":2,"c":3}`, ptr: new(interface{}), useOrderedObject: true,
++		out: OrderedObject{{"a", "1"}, {"b", float64(2)}, {"c", float64(3)}}},
++	{in: `[{"a":"1","b":2}]`, ptr: new(interface{}), useOrderedObject: true,
++		out: []interface{}{OrderedObject{{"a", "1"}, {"b", float64(2)}}}},
++	{in: `{"a":null,"b": {"c":true} }`, ptr: new(interface{}), useOrderedObject: true,
++		out: OrderedObject{{"a", nil}, {"b", OrderedObject{{"c", true}}}}},
++	{in: `{"T":[]}`, ptr: new(interface{}), useOrderedObject: true,
++		out: OrderedObject{{Key: "T", Value: []interface{}{}}}},
++	{in: `{"T":null}`, ptr: new(interface{}), useOrderedObject: true,
++		out: OrderedObject{{Key: "T", Value: nil}}},
++	// OrderedObject tests - into map[string]interface{}
++	{in: `{"a":"1","b":2,"c":3}`, ptr: new(map[string]interface{}), useOrderedObject: true,
++		out: map[string]interface{}{"a": "1", "b": float64(2), "c": float64(3)}},
++	{in: `{"a":null,"b": {"c":true} }`, ptr: new(map[string]interface{}), useOrderedObject: true,
++		out: map[string]interface{}{"a": nil, "b": OrderedObject{{"c", true}}}},
++	{in: `{"T":[]}`, ptr: new(map[string]interface{}), useOrderedObject: true,
++		out: map[string]interface{}{"T": []interface{}{}}},
++	{in: `{"T":null}`, ptr: new(map[string]interface{}), useOrderedObject: true,
++		out: map[string]interface{}{"T": nil}},
++	// OrderedObject tests - into OrderedObject
++	{in: `{"a":"1","b":2,"c":3}`, ptr: new(OrderedObject), useOrderedObject: true,
++		out: OrderedObject{{"a", "1"}, {"b", float64(2)}, {"c", float64(3)}}},
++	{in: `{"a":"1","b":2,"c":3}`, ptr: new(OrderedObject),
++		out: OrderedObject{{"a", "1"}, {"b", float64(2)}, {"c", float64(3)}}},
++	{in: `{"a":null,"b": {"c":true} }`, ptr: new(OrderedObject), useOrderedObject: true,
++		out: OrderedObject{{"a", nil}, {"b", OrderedObject{{"c", true}}}}},
++	{in: `{"a":null,"b": {"c":true} }`, ptr: new(OrderedObject),
++		out: OrderedObject{{"a", nil}, {"b", map[string]interface{}{"c": true}}}},
++	// OrderedObject tests -into []OrderedObject
++	{in: `[{"a":"1","b":2},{"c":3}]`, ptr: &[]OrderedObject{},
++		out: []OrderedObject{{{"a", "1"}, {"b", float64(2)}}, {{"c", float64(3)}}}},
+ }
+ 
+ func TestMarshal(t *testing.T) {
+@@ -528,6 +562,9 @@ func TestUnmarshal(t *testing.T) {
+ 		if tt.useNumber {
+ 			dec.UseNumber()
+ 		}
++		if tt.useOrderedObject {
++			dec.UseOrderedObject()
++		}
+ 		if err := dec.Decode(v.Interface()); !reflect.DeepEqual(err, tt.err) {
+ 			t.Errorf("#%d: %v, want %v", i, err, tt.err)
+ 			continue
+@@ -555,6 +592,9 @@ func TestUnmarshal(t *testing.T) {
+ 			if tt.useNumber {
+ 				dec.UseNumber()
+ 			}
++			if tt.useOrderedObject {
++				dec.UseOrderedObject()
++			}
+ 			if err := dec.Decode(vv.Interface()); err != nil {
+ 				t.Errorf("#%d: error re-unmarshaling %#q: %v", i, enc, err)
+ 				continue
+@@ -1371,3 +1411,22 @@ func TestInvalidUnmarshal(t *testing.T) {
+ 		}
+ 	}
+ }
++
++type Obj struct {
++	A int
++	B OrderedObject
++	C string
++}
++
++func TestUnmarshalOrdered(t *testing.T) {
++	var v Obj
++	buf := []byte(`{"A": 3, "B": { "A": 5, "B": null}, "C": "C"}`)
++	exp := Obj{A: 3, B: OrderedObject{{"A", float64(5)}, {"B", nil}}, C: "C"}
++	err := Unmarshal(buf, &v)
++	if err != nil {
++		t.Errorf("Unmarshal unexpected error: %v", err)
++	}
++	if !reflect.DeepEqual(exp, v) {
++		t.Errorf("%v, want %v", v, exp)
++	}
++}
+diff --git a/canonical/json/encode.go b/canonical/json/encode.go
+index fca2a09..7793733 100644
+--- a/canonical/json/encode.go
++++ b/canonical/json/encode.go
+@@ -116,6 +116,9 @@ import (
+ // The map's key type must be string; the object keys are used directly
+ // as map keys.
+ //
++// OrderedObject values encode as JSON objects.
++// The JSON keys are encoded in the order in which they appear in the OrderedObject.
++//
+ // Pointer values encode as the value pointed to.
+ // A nil pointer encodes as the null JSON object.
+ //
+@@ -350,6 +353,7 @@ func typeEncoder(t reflect.Type) encoderFunc {
+ var (
+ 	marshalerType     = reflect.TypeOf(new(Marshaler)).Elem()
+ 	textMarshalerType = reflect.TypeOf(new(encoding.TextMarshaler)).Elem()
++	orderedObjectType = reflect.TypeOf(new(OrderedObject)).Elem()
+ )
+ 
+ // newTypeEncoder constructs an encoderFunc for a type.
+@@ -373,6 +377,10 @@ func newTypeEncoder(t reflect.Type, allowAddr bool) encoderFunc {
+ 		}
+ 	}
+ 
++	if t == orderedObjectType {
++		return orderedObjectEncoder
++	}
++
+ 	switch t.Kind() {
+ 	case reflect.Bool:
+ 		return boolEncoder
+@@ -629,6 +637,24 @@ func newMapEncoder(t reflect.Type) encoderFunc {
+ 	return me.encode
+ }
+ 
++func orderedObjectEncoder(e *encodeState, v reflect.Value, quoted bool) {
++	if v.IsNil() {
++		e.WriteString("null")
++		return
++	}
++	e.WriteByte('{')
++	var ov OrderedObject = v.Interface().(OrderedObject)
++	for i, o := range ov {
++		if i > 0 {
++			e.WriteByte(',')
++		}
++		e.string(o.Key)
++		e.WriteByte(':')
++		e.reflectValue(reflect.ValueOf(o.Value))
++	}
++	e.WriteByte('}')
++}
++
+ func encodeByteSlice(e *encodeState, v reflect.Value, _ bool) {
+ 	if v.IsNil() {
+ 		e.WriteString("null")
+diff --git a/canonical/json/encode_test.go b/canonical/json/encode_test.go
+index 7abfa85..d497bd9 100644
+--- a/canonical/json/encode_test.go
++++ b/canonical/json/encode_test.go
+@@ -530,3 +530,36 @@ func TestEncodeString(t *testing.T) {
+ 		}
+ 	}
+ }
++
++type ObjEnc struct {
++   A int
++   B OrderedObject
++   C interface{}
++}
++
++var orderedObjectTests = []struct {
++   in  interface{}
++   out string
++}{
++   {OrderedObject{}, `{}`},
++   {OrderedObject{Member{"A", []int{1, 2, 3}}, Member{"B", 23}, Member{"C", "C"}}, `{"A":[1,2,3],"B":23,"C":"C"}`},
++   {ObjEnc{A: 234, B: OrderedObject{Member{"K", "V"}, Member{"V", 4}}}, `{"A":234,"B":{"K":"V","V":4},"C":null}`},
++   {ObjEnc{A: 234, B: OrderedObject{}, C: OrderedObject{{"A", 0}}}, `{"A":234,"B":{},"C":{"A":0}}`},
++   {[]OrderedObject{{{"A", "Ay"}, {"B", "Bee"}}, {{"A", "Nay"}}}, `[{"A":"Ay","B":"Bee"},{"A":"Nay"}]`},
++   {map[string]OrderedObject{"A": {{"A", "Ay"}, {"B", "Bee"}}}, `{"A":{"A":"Ay","B":"Bee"}}`},
++   {map[string]interface{}{"A": OrderedObject{{"A", "Ay"}, {"B", "Bee"}}}, `{"A":{"A":"Ay","B":"Bee"}}`},
++}
++
++func TestEncodeOrderedObject(t *testing.T) {
++   for i, o := range orderedObjectTests {
++       d, err := Marshal(o.in)
++       if err != nil {
++           t.Errorf("Unexpected error %v", err)
++           continue
++       }
++       ds := string(d)
++       if o.out != ds {
++           t.Errorf("#%d expected '%v', was '%v'", i, o.out, ds)
++       }
++   }
++}
+diff --git a/canonical/json/example_test.go b/canonical/json/example_test.go
+index ca4e5ae..6b09118 100644
+--- a/canonical/json/example_test.go
++++ b/canonical/json/example_test.go
+@@ -6,12 +6,13 @@ package json_test
+ 
+ import (
+ 	"bytes"
+-	"encoding/json"
+ 	"fmt"
+ 	"io"
+ 	"log"
+ 	"os"
+ 	"strings"
++
++	"github.com/jfrazelle/go/canonical/json"
+ )
+ 
+ func ExampleMarshal() {
+@@ -159,3 +160,43 @@ func ExampleIndent() {
+ 	// =	}
+ 	// =]
+ }
++
++func ExampleOrderedObject() {
++	var jsonBlob = []byte(`[
++       {"name": "Issac Newton", "born": 1643, "died": 1727 },
++       {"name": "André-Marie Ampère", "born": 1777, "died": 1836 }
++   ]`)
++	var people []json.OrderedObject
++
++	// Decode JSON while preserving the order of JSON key pairs.
++	err := json.Unmarshal(jsonBlob, &people)
++	if err != nil {
++		fmt.Println("unmarshalling error:", err)
++	}
++	fmt.Printf("Decoded:\n")
++	for _, v := range people {
++		for _, a := range v {
++			fmt.Printf(" %v=%v", a.Key, a.Value)
++		}
++		fmt.Printf("\n")
++	}
++
++	// Encode JSON keys in the order defined by the OrderedObject.
++	person := json.OrderedObject{
++		{Key: "name", Value: "Hans Christian Ørsted"},
++		{Key: "born", Value: 1777},
++		{Key: "died", Value: 1851},
++		{Key: "nationality", Value: "Danish"},
++	}
++	b, err := json.Marshal(person)
++	if err != nil {
++		fmt.Println("marshalling error:", err)
++	}
++	fmt.Printf("Encoded:\n %v", string(b))
++	// Output:
++	// Decoded:
++	//  name=Issac Newton born=1643 died=1727
++	//  name=André-Marie Ampère born=1777 died=1836
++	// Encoded:
++	//  {"name":"Hans Christian Ørsted","born":1777,"died":1851,"nationality":"Danish"}
++}
+diff --git a/canonical/json/stream.go b/canonical/json/stream.go
+index 9566eca..7e71bc3 100644
+--- a/canonical/json/stream.go
++++ b/canonical/json/stream.go
+@@ -31,6 +31,10 @@ func NewDecoder(r io.Reader) *Decoder {
+ // Number instead of as a float64.
+ func (dec *Decoder) UseNumber() { dec.d.useNumber = true }
+ 
++// UseOrderedObject causes the Decoder to unmarshal an object into an interface{}
++// as a OrderedObject instead of as a map[string]interface{}.
++func (dec *Decoder) UseOrderedObject() { dec.d.useOrderedObject = true }
++
+ // Decode reads the next JSON-encoded value from its
+ // input and stores it in the value pointed to by v.
+ //
+@@ -198,3 +202,52 @@ func (m *RawMessage) UnmarshalJSON(data []byte) error {
+ 
+ var _ Marshaler = (*RawMessage)(nil)
+ var _ Unmarshaler = (*RawMessage)(nil)
++
++// Member is used to store key/value pairs in an OrderedObject.
++type Member struct {
++	Key   string
++	Value interface{}
++}
++
++// OrderedObject stores the key/value pairs of a JSON object in the order
++// in which they appeared in the original document. See the documentation for UseOrderedObject on the Decoder.
++//
++// OrderedObject is used to enable decoding of arbitrary JSON objects while preserving
++// the order of the keys. Unmarshal and Decoder.Decode are supported.
++//
++//   var o OrderedObject
++//   Unmarshal(json, &o)     // decode JSON object, while preserving key order
++//
++//   var oa []OrderedObject
++//   Unmarshal(json, &oa)    // decode an array of JSON objects, while preserving key order
++//
++//   var v interface{}
++//   d := new Decoder(json)
++//   d.UseOrderedObject()    // decode all JSON objects as OrderedObject rather than map[string]interface{}
++//   d.Decode(&v)
++//
++//   type A struct {
++//       B     bool
++//       Inner OrderedObject
++//       I     int
++//   }
++//   var a A
++//   Unmarshal(&a)           // decode A as a JSON object with Inner as a nested object, preserving key order
++//
++// OrderedObject can also be used to encode a JSON object in
++// a specified order. Marshal and Encoder.Encode are supported.
++//
++//    var o OrderedObject
++//    Marshal(o)             // encode JSON object, each with keys in OrderedObject order
++//
++//    var oa []OrderedObject
++//    Marshal(oa)            // encode an array of JSON objects, with keys in OrderedObject order
++//
++//    type A struct {
++//       B     bool
++//       Inner OrderedObject
++//       I     int
++//    }
++//    var a A = createA()
++//    Marshal(a)             // encode A as a JSON object with Inner as a nested object
++type OrderedObject []Member
+-- 
+2.5.0
+
