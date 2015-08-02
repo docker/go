@@ -16,24 +16,24 @@ import (
 // Test values for the stream test.
 // One of each JSON kind.
 var streamTest = []interface{}{
-	1.0,
+	0.1,
 	"hello",
 	nil,
 	true,
 	false,
 	[]interface{}{"a", "b", "c"},
 	map[string]interface{}{"K": "Kelvin", "ß": "long s"},
-	3.0, // another value to make sure something can follow map
+	3.14, // another value to make sure something can follow map
 }
 
-var streamEncoded = `1
+var streamEncoded = `0.1
 "hello"
 null
 true
 false
 ["a","b","c"]
 {"ß":"long s","K":"Kelvin"}
-3
+3.14
 `
 
 func TestEncoder(t *testing.T) {
@@ -129,7 +129,7 @@ func TestRawMessage(t *testing.T) {
 		Y  float32
 	}
 	const raw = `["\u0056",null]`
-	const msg = `{"X":1,"Id":["\u0056",null],"Y":2}`
+	const msg = `{"X":0.1,"Id":["\u0056",null],"Y":0.2}`
 	err := Unmarshal([]byte(msg), &data)
 	if err != nil {
 		t.Fatalf("Unmarshal: %v", err)
@@ -154,7 +154,7 @@ func TestNullRawMessage(t *testing.T) {
 		Y  float32
 	}
 	data.Id = new(RawMessage)
-	const msg = `{"X":1,"Id":null,"Y":2}`
+	const msg = `{"X":0.1,"Id":null,"Y":0.2}`
 	err := Unmarshal([]byte(msg), &data)
 	if err != nil {
 		t.Fatalf("Unmarshal: %v", err)

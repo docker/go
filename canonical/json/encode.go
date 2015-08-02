@@ -14,7 +14,6 @@ import (
 	"bytes"
 	"encoding"
 	"encoding/base64"
-	"fmt"
 	"math"
 	"reflect"
 	"runtime"
@@ -392,7 +391,7 @@ func newTypeEncoder(t reflect.Type, allowAddr bool) encoderFunc {
 	case reflect.Struct:
 		return newStructEncoder(t)
 	case reflect.Map:
-		return newCondEncoder(canonicalEncoder, newMapEncoder(t))
+		return newMapEncoder(t)
 	case reflect.Slice:
 		return newSliceEncoder(t)
 	case reflect.Array:
@@ -512,11 +511,8 @@ type floatEncoder int // number of bits
 
 func (bits floatEncoder) encode(e *encodeState, v reflect.Value, quoted bool) {
 	f := v.Float()
-	if math.IsInf(f, 0) || math.IsNaN(f) || math.Floor(f) != f {
-		e.error(&UnsupportedValueError{
-			v,
-			fmt.Sprintf("floating point number, %s", strconv.FormatFloat(f, 'g', -1, int(bits))),
-		})
+	if math.IsInf(f, 0) || math.IsNaN(f) {
+		e.error(&UnsupportedValueError{v, strconv.FormatFloat(f, 'g', -1, int(bits))})
 	}
 	b := strconv.AppendFloat(e.scratch[:0], f, 'g', -1, int(bits))
 	if quoted {
@@ -600,67 +596,6 @@ func newStructEncoder(t reflect.Type) encoderFunc {
 		se.fieldEncs[i] = typeEncoder(typeByIndex(t, f.index))
 	}
 	return se.encode
-}
-
-func canonicalEncoder(e *encodeState, v reflect.Value, _ bool) {
-	m, ok := v.Interface().(Marshaler)
-	if !ok {
-		// T doesn't match the interface. Check against *T too.
-		if v.Kind() != reflect.Ptr && v.CanAddr() {
-			m, ok = v.Addr().Interface().(Marshaler)
-			if ok {
-				v = v.Addr()
-			}
-		}
-	}
-	b, err := m.MarshalJSON()
-	if err != nil {
-		e.error(&MarshalerError{v.Type(), err})
-	}
-
-	// canonicalize the json if it's an object
-	b = bytes.TrimSpace(b)
-	if len(b) > 0 && b[0] == '{' {
-		var temp interface{}
-		err = Unmarshal(b, &temp)
-		if err != nil {
-			e.error(&MarshalerError{v.Type(), err})
-		}
-		b, err = Marshal(temp)
-		if err != nil {
-			e.error(&MarshalerError{v.Type(), err})
-		}
-	}
-	e.Buffer.Write(b)
-}
-
-type condEncoder struct {
-	canEnc, elseEnc encoderFunc
-}
-
-func (ce *condEncoder) encode(e *encodeState, v reflect.Value, quoted bool) {
-	_, ok := v.Interface().(Marshaler)
-	if !ok {
-		// T doesn't match the interface. Check against *T too.
-		if v.Kind() != reflect.Ptr && v.CanAddr() {
-			_, ok = v.Addr().Interface().(Marshaler)
-			if ok {
-				v = v.Addr()
-			}
-		}
-	}
-	if ok && (v.Kind() != reflect.Ptr || !v.IsNil()) {
-		ce.canEnc(e, v, quoted)
-	} else {
-		ce.elseEnc(e, v, quoted)
-	}
-}
-
-// newCondEncoder returns an encoder that checks whether its value
-// Can and delegates to canEnc if so, else to elseEnc.
-func newCondEncoder(canEnc, elseEnc encoderFunc) encoderFunc {
-	enc := &condEncoder{canEnc: canEnc, elseEnc: elseEnc}
-	return enc.encode
 }
 
 type mapEncoder struct {
@@ -853,7 +788,7 @@ func (e *encodeState) string(s string) (int, error) {
 	start := 0
 	for i := 0; i < len(s); {
 		if b := s[i]; b < utf8.RuneSelf {
-			if b != '\\' && b != '"' {
+			if 0x20 <= b && b != '\\' && b != '"' && b != '<' && b != '>' && b != '&' {
 				i++
 				continue
 			}
@@ -864,6 +799,23 @@ func (e *encodeState) string(s string) (int, error) {
 			case '\\', '"':
 				e.WriteByte('\\')
 				e.WriteByte(b)
+			case '\n':
+				e.WriteByte('\\')
+				e.WriteByte('n')
+			case '\r':
+				e.WriteByte('\\')
+				e.WriteByte('r')
+			case '\t':
+				e.WriteByte('\\')
+				e.WriteByte('t')
+			default:
+				// This encodes bytes < 0x20 except for \n and \r,
+				// as well as <, > and &. The latter are escaped because they
+				// can lead to security holes when user-controlled strings
+				// are rendered into JSON and served to some browsers.
+				e.WriteString(`\u00`)
+				e.WriteByte(hex[b>>4])
+				e.WriteByte(hex[b&0xF])
 			}
 			i++
 			start = i
@@ -912,7 +864,7 @@ func (e *encodeState) stringBytes(s []byte) (int, error) {
 	start := 0
 	for i := 0; i < len(s); {
 		if b := s[i]; b < utf8.RuneSelf {
-			if 0x20 <= b && b != '\\' {
+			if 0x20 <= b && b != '\\' && b != '"' && b != '<' && b != '>' && b != '&' {
 				i++
 				continue
 			}
@@ -923,6 +875,23 @@ func (e *encodeState) stringBytes(s []byte) (int, error) {
 			case '\\', '"':
 				e.WriteByte('\\')
 				e.WriteByte(b)
+			case '\n':
+				e.WriteByte('\\')
+				e.WriteByte('n')
+			case '\r':
+				e.WriteByte('\\')
+				e.WriteByte('r')
+			case '\t':
+				e.WriteByte('\\')
+				e.WriteByte('t')
+			default:
+				// This encodes bytes < 0x20 except for \n and \r,
+				// as well as <, >, and &. The latter are escaped because they
+				// can lead to security holes when user-controlled strings
+				// are rendered into JSON and served to some browsers.
+				e.WriteString(`\u00`)
+				e.WriteByte(hex[b>>4])
+				e.WriteByte(hex[b&0xF])
 			}
 			i++
 			start = i
