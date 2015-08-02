@@ -168,13 +168,12 @@ func (n Number) Int64() (int64, error) {
 
 // decodeState represents the state while decoding a JSON value.
 type decodeState struct {
-	data             []byte
-	off              int // read offset in data
-	scan             scanner
-	nextscan         scanner // for calls to nextValue
-	savedError       error
-	useNumber        bool
-	useOrderedObject bool
+	data       []byte
+	off        int // read offset in data
+	scan       scanner
+	nextscan   scanner // for calls to nextValue
+	savedError error
+	useNumber  bool
 }
 
 // errPhase is used for errors that should not happen unless
@@ -493,13 +492,9 @@ func (d *decodeState) object(v reflect.Value) {
 	}
 	v = pv
 
-	// If we are decoding into a OrderedObject then use an OrderedObject
-	// just for this particular object even if UseOrderedObject was not called.
-	forceOrderedObject := v.Type() == orderedObjectType
-
 	// Decoding into nil interface?  Switch to non-reflect code.
-	if (v.Kind() == reflect.Interface && v.NumMethod() == 0) || forceOrderedObject {
-		v.Set(reflect.ValueOf(d.objectInterface(forceOrderedObject)))
+	if v.Kind() == reflect.Interface && v.NumMethod() == 0 {
+		v.Set(reflect.ValueOf(d.objectInterface()))
 		return
 	}
 
@@ -836,7 +831,7 @@ func (d *decodeState) valueInterface() interface{} {
 	case scanBeginArray:
 		return d.arrayInterface()
 	case scanBeginObject:
-		return d.objectInterface(false)
+		return d.objectInterface()
 	case scanBeginLiteral:
 		return d.literalInterface()
 	}
@@ -870,10 +865,9 @@ func (d *decodeState) arrayInterface() []interface{} {
 	return v
 }
 
-// objectInterface is like object but returns map[string]interface{} or []OrderedObject.
-func (d *decodeState) objectInterface(forceOrderedObject bool) interface{} {
+// objectInterface is like object but returns map[string]interface{}.
+func (d *decodeState) objectInterface() map[string]interface{} {
 	m := make(map[string]interface{})
-	v := make(OrderedObject, 0)
 	for {
 		// Read opening " of string key or closing }.
 		op := d.scanWhile(scanSkipSpace)
@@ -903,11 +897,7 @@ func (d *decodeState) objectInterface(forceOrderedObject bool) interface{} {
 		}
 
 		// Read value.
-		if d.useOrderedObject || forceOrderedObject {
-			v = append(v, Member{Key: key, Value: d.valueInterface()})
-		} else {
-			m[key] = d.valueInterface()
-		}
+		m[key] = d.valueInterface()
 
 		// Next token must be , or }.
 		op = d.scanWhile(scanSkipSpace)
@@ -917,10 +907,6 @@ func (d *decodeState) objectInterface(forceOrderedObject bool) interface{} {
 		if op != scanObjectValue {
 			d.error(errPhase)
 		}
-	}
-
-	if d.useOrderedObject || forceOrderedObject {
-		return v
 	}
 	return m
 }

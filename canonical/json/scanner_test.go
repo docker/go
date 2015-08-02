@@ -264,7 +264,7 @@ func genValue(n int) interface{} {
 	case 0:
 		return rand.Intn(2) == 0
 	case 1:
-		return math.Floor(rand.NormFloat64())
+		return rand.NormFloat64()
 	case 2:
 		return genString(30)
 	}

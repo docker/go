@@ -36,14 +36,14 @@ type V struct {
 var ifaceNumAsFloat64 = map[string]interface{}{
 	"k1": float64(1),
 	"k2": "s",
-	"k3": []interface{}{float64(1), float64(2.0), float64(3)},
+	"k3": []interface{}{float64(1), float64(2.0), float64(3e-3)},
 	"k4": map[string]interface{}{"kk1": "s", "kk2": float64(2)},
 }
 
 var ifaceNumAsNumber = map[string]interface{}{
 	"k1": Number("1"),
 	"k2": "s",
-	"k3": []interface{}{Number("1"), Number("2.0"), Number("3")},
+	"k3": []interface{}{Number("1"), Number("2.0"), Number("3e-3")},
 	"k4": map[string]interface{}{"kk1": "s", "kk2": Number("2")},
 }
 
@@ -197,12 +197,11 @@ type S13 struct {
 }
 
 type unmarshalTest struct {
-	in               string
-	ptr              interface{}
-	out              interface{}
-	err              error
-	useNumber        bool
-	useOrderedObject bool
+	in        string
+	ptr       interface{}
+	out       interface{}
+	err       error
+	useNumber bool
 }
 
 type Ambig struct {
@@ -221,7 +220,7 @@ var unmarshalTests = []unmarshalTest{
 	// basic types
 	{in: `true`, ptr: new(bool), out: true},
 	{in: `1`, ptr: new(int), out: 1},
-	{in: `1.0`, ptr: new(float64), out: 1.0},
+	{in: `1.2`, ptr: new(float64), out: 1.2},
 	{in: `-5`, ptr: new(int16), out: int16(-5)},
 	{in: `2`, ptr: new(Number), out: Number("2"), useNumber: true},
 	{in: `2`, ptr: new(Number), out: Number("2")},
@@ -236,13 +235,13 @@ var unmarshalTests = []unmarshalTest{
 	{in: `{"x": 1}`, ptr: new(tx), out: tx{}},
 	{in: `{"F1":1,"F2":2,"F3":3}`, ptr: new(V), out: V{F1: float64(1), F2: int32(2), F3: Number("3")}},
 	{in: `{"F1":1,"F2":2,"F3":3}`, ptr: new(V), out: V{F1: Number("1"), F2: int32(2), F3: Number("3")}, useNumber: true},
-	{in: `{"k1":1,"k2":"s","k3":[1,2.0,3],"k4":{"kk1":"s","kk2":2}}`, ptr: new(interface{}), out: ifaceNumAsFloat64},
-	{in: `{"k1":1,"k2":"s","k3":[1,2.0,3],"k4":{"kk1":"s","kk2":2}}`, ptr: new(interface{}), out: ifaceNumAsNumber, useNumber: true},
+	{in: `{"k1":1,"k2":"s","k3":[1,2.0,3e-3],"k4":{"kk1":"s","kk2":2}}`, ptr: new(interface{}), out: ifaceNumAsFloat64},
+	{in: `{"k1":1,"k2":"s","k3":[1,2.0,3e-3],"k4":{"kk1":"s","kk2":2}}`, ptr: new(interface{}), out: ifaceNumAsNumber, useNumber: true},
 
 	// raw values with whitespace
 	{in: "\n true ", ptr: new(bool), out: true},
 	{in: "\t 1 ", ptr: new(int), out: 1},
-	{in: "\r 1.0 ", ptr: new(float64), out: 1.0},
+	{in: "\r 1.2 ", ptr: new(float64), out: 1.2},
 	{in: "\t -5 \n", ptr: new(int16), out: int16(-5)},
 	{in: "\t \"a\\u1234\" \n", ptr: new(string), out: "a\u1234"},
 
@@ -414,39 +413,6 @@ var unmarshalTests = []unmarshalTest{
 		ptr: &map[time.Time]string{},
 		err: &UnmarshalTypeError{"object", reflect.TypeOf(map[time.Time]string{})},
 	},
-
-	// OrderedObject tests - into interface{}
-	{in: `{"a":"1","b":2,"c":3}`, ptr: new(interface{}), useOrderedObject: true,
-		out: OrderedObject{{"a", "1"}, {"b", float64(2)}, {"c", float64(3)}}},
-	{in: `[{"a":"1","b":2}]`, ptr: new(interface{}), useOrderedObject: true,
-		out: []interface{}{OrderedObject{{"a", "1"}, {"b", float64(2)}}}},
-	{in: `{"a":null,"b": {"c":true} }`, ptr: new(interface{}), useOrderedObject: true,
-		out: OrderedObject{{"a", nil}, {"b", OrderedObject{{"c", true}}}}},
-	{in: `{"T":[]}`, ptr: new(interface{}), useOrderedObject: true,
-		out: OrderedObject{{Key: "T", Value: []interface{}{}}}},
-	{in: `{"T":null}`, ptr: new(interface{}), useOrderedObject: true,
-		out: OrderedObject{{Key: "T", Value: nil}}},
-	// OrderedObject tests - into map[string]interface{}
-	{in: `{"a":"1","b":2,"c":3}`, ptr: new(map[string]interface{}), useOrderedObject: true,
-		out: map[string]interface{}{"a": "1", "b": float64(2), "c": float64(3)}},
-	{in: `{"a":null,"b": {"c":true} }`, ptr: new(map[string]interface{}), useOrderedObject: true,
-		out: map[string]interface{}{"a": nil, "b": OrderedObject{{"c", true}}}},
-	{in: `{"T":[]}`, ptr: new(map[string]interface{}), useOrderedObject: true,
-		out: map[string]interface{}{"T": []interface{}{}}},
-	{in: `{"T":null}`, ptr: new(map[string]interface{}), useOrderedObject: true,
-		out: map[string]interface{}{"T": nil}},
-	// OrderedObject tests - into OrderedObject
-	{in: `{"a":"1","b":2,"c":3}`, ptr: new(OrderedObject), useOrderedObject: true,
-		out: OrderedObject{{"a", "1"}, {"b", float64(2)}, {"c", float64(3)}}},
-	{in: `{"a":"1","b":2,"c":3}`, ptr: new(OrderedObject),
-		out: OrderedObject{{"a", "1"}, {"b", float64(2)}, {"c", float64(3)}}},
-	{in: `{"a":null,"b": {"c":true} }`, ptr: new(OrderedObject), useOrderedObject: true,
-		out: OrderedObject{{"a", nil}, {"b", OrderedObject{{"c", true}}}}},
-	{in: `{"a":null,"b": {"c":true} }`, ptr: new(OrderedObject),
-		out: OrderedObject{{"a", nil}, {"b", map[string]interface{}{"c": true}}}},
-	// OrderedObject tests -into []OrderedObject
-	{in: `[{"a":"1","b":2},{"c":3}]`, ptr: &[]OrderedObject{},
-		out: []OrderedObject{{{"a", "1"}, {"b", float64(2)}}, {{"c", float64(3)}}}},
 }
 
 func TestMarshal(t *testing.T) {
@@ -562,9 +528,6 @@ func TestUnmarshal(t *testing.T) {
 		if tt.useNumber {
 			dec.UseNumber()
 		}
-		if tt.useOrderedObject {
-			dec.UseOrderedObject()
-		}
 		if err := dec.Decode(v.Interface()); !reflect.DeepEqual(err, tt.err) {
 			t.Errorf("#%d: %v, want %v", i, err, tt.err)
 			continue
@@ -591,9 +554,6 @@ func TestUnmarshal(t *testing.T) {
 			dec = NewDecoder(bytes.NewReader(enc))
 			if tt.useNumber {
 				dec.UseNumber()
-			}
-			if tt.useOrderedObject {
-				dec.UseOrderedObject()
 			}
 			if err := dec.Decode(vv.Interface()); err != nil {
 				t.Errorf("#%d: error re-unmarshaling %#q: %v", i, enc, err)
@@ -836,8 +796,8 @@ var allValue = All{
 	Uint32:  10,
 	Uint64:  11,
 	Uintptr: 12,
-	Float32: 14,
-	Float64: 15,
+	Float32: 14.1,
+	Float64: 15.1,
 	Foo:     "foo",
 	Foo2:    "foo2",
 	IntStr:  42,
@@ -858,7 +818,7 @@ var allValue = All{
 	ByteSlice:   []byte{27, 28, 29},
 	Small:       Small{Tag: "tag30"},
 	PSmall:      &Small{Tag: "tag31"},
-	Interface:   5.0,
+	Interface:   5.2,
 }
 
 var pallValue = All{
@@ -898,8 +858,8 @@ var allValueIndent = `{
 	"Uint32": 10,
 	"Uint64": 11,
 	"Uintptr": 12,
-	"Float32": 14,
-	"Float64": 15,
+	"Float32": 14.1,
+	"Float64": 15.1,
 	"bar": "foo",
 	"bar2": "foo2",
 	"IntStr": "42",
@@ -971,7 +931,7 @@ var allValueIndent = `{
 		"Tag": "tag31"
 	},
 	"PPSmall": null,
-	"Interface": 5,
+	"Interface": 5.2,
 	"PInterface": null
 }`
 
@@ -1007,8 +967,8 @@ var pallValueIndent = `{
 	"PUint32": 10,
 	"PUint64": 11,
 	"PUintptr": 12,
-	"PFloat32": 14,
-	"PFloat64": 15,
+	"PFloat32": 14.1,
+	"PFloat64": 15.1,
 	"String": "",
 	"PString": "16",
 	"Map": null,
@@ -1060,7 +1020,7 @@ var pallValueIndent = `{
 		"Tag": "tag31"
 	},
 	"Interface": null,
-	"PInterface": 5
+	"PInterface": 5.2
 }`
 
 var pallValueCompact = strings.Map(noSpace, pallValueIndent)
@@ -1209,8 +1169,8 @@ func TestUnmarshalNulls(t *testing.T) {
 		Uint16:  9,
 		Uint32:  10,
 		Uint64:  11,
-		Float32: 12.0,
-		Float64: 13.0,
+		Float32: 12.1,
+		Float64: 13.1,
 		String:  "14"}
 
 	err := Unmarshal(jsonData, &nulls)
@@ -1219,7 +1179,7 @@ func TestUnmarshalNulls(t *testing.T) {
 	}
 	if !nulls.Bool || nulls.Int != 2 || nulls.Int8 != 3 || nulls.Int16 != 4 || nulls.Int32 != 5 || nulls.Int64 != 6 ||
 		nulls.Uint != 7 || nulls.Uint8 != 8 || nulls.Uint16 != 9 || nulls.Uint32 != 10 || nulls.Uint64 != 11 ||
-		nulls.Float32 != 12.0 || nulls.Float64 != 13.0 || nulls.String != "14" {
+		nulls.Float32 != 12.1 || nulls.Float64 != 13.1 || nulls.String != "14" {
 
 		t.Errorf("Unmarshal of null values affected primitives")
 	}
@@ -1367,13 +1327,13 @@ func TestPrefilled(t *testing.T) {
 	}{
 		{
 			in:  `{"X": 1, "Y": 2}`,
-			ptr: &XYZ{X: float32(3), Y: int16(4), Z: 1},
-			out: &XYZ{X: float64(1), Y: float64(2), Z: 1},
+			ptr: &XYZ{X: float32(3), Y: int16(4), Z: 1.5},
+			out: &XYZ{X: float64(1), Y: float64(2), Z: 1.5},
 		},
 		{
 			in:  `{"X": 1, "Y": 2}`,
-			ptr: ptrToMap(map[string]interface{}{"X": float32(3), "Y": int16(4), "Z": 1}),
-			out: ptrToMap(map[string]interface{}{"X": float64(1), "Y": float64(2), "Z": 1}),
+			ptr: ptrToMap(map[string]interface{}{"X": float32(3), "Y": int16(4), "Z": 1.5}),
+			out: ptrToMap(map[string]interface{}{"X": float64(1), "Y": float64(2), "Z": 1.5}),
 		},
 	}
 
@@ -1409,24 +1369,5 @@ func TestInvalidUnmarshal(t *testing.T) {
 		if got := err.Error(); got != tt.want {
 			t.Errorf("Unmarshal = %q; want %q", got, tt.want)
 		}
-	}
-}
-
-type Obj struct {
-	A int
-	B OrderedObject
-	C string
-}
-
-func TestUnmarshalOrdered(t *testing.T) {
-	var v Obj
-	buf := []byte(`{"A": 3, "B": { "A": 5, "B": null}, "C": "C"}`)
-	exp := Obj{A: 3, B: OrderedObject{{"A", float64(5)}, {"B", nil}}, C: "C"}
-	err := Unmarshal(buf, &v)
-	if err != nil {
-		t.Errorf("Unmarshal unexpected error: %v", err)
-	}
-	if !reflect.DeepEqual(exp, v) {
-		t.Errorf("%v, want %v", v, exp)
 	}
 }
