@@ -530,3 +530,59 @@ func TestEncodeString(t *testing.T) {
 		}
 	}
 }
+
+type ObjEnc struct {
+	A int
+	B map[string]interface{}
+	C interface{}
+}
+
+var orderedObjectTests = []struct {
+	in  interface{}
+	out string
+}{
+	{map[string]interface{}{}, `{}`},
+	{map[string]interface{}{"A": []int{1, 2, 3}, "B": 23, "C": "C"}, `{"A":[1,2,3],"B":23,"C":"C"}`},
+	{ObjEnc{A: 234, B: map[string]interface{}{"K": "V", "V": 4}}, `{"A":234,"B":{"K":"V","V":4},"C":null}`},
+	{ObjEnc{A: 234, B: map[string]interface{}{}, C: map[string]interface{}{"A": 0}}, `{"A":234,"B":{},"C":{"A":0}}`},
+	{map[string]interface{}{"A": "Ay", "B": "Bee", "C": "Nay"}, `{"A":"Ay","B":"Bee","C":"Nay"}`},
+	{map[string]map[string]interface{}{"A": {"A": "Ay", "B": "Bee"}}, `{"A":{"A":"Ay","B":"Bee"}}`},
+	{map[string]interface{}{"A": map[string]interface{}{"A": "Ay", "B": "Bee"}}, `{"A":{"A":"Ay","B":"Bee"}}`},
+}
+
+func TestEncodeOrderedObject(t *testing.T) {
+	for i, o := range orderedObjectTests {
+		d, err := Marshal(o.in)
+		if err != nil {
+			t.Errorf("Unexpected error %v", err)
+			continue
+		}
+		ds := string(d)
+		if o.out != ds {
+			t.Errorf("#%d expected '%v', was '%v'", i, o.out, ds)
+		}
+	}
+}
+
+type marshaling struct{}
+
+func (m marshaling) MarshalJSON() ([]byte, error) { return []byte("\t\n  {\"b\":234,\"a\":123}"), nil }
+
+func TestCanonicalization(t *testing.T) {
+	input := struct {
+		C map[string]interface{} `json:"c"`
+		A string                 `json:"a"`
+		D []int                  `json:"d"`
+		B int                    `json:"b"`
+		E *marshaling            `json:"e"`
+	}{map[string]interface{}{"b": "b", "a": "\n\r", "c": "\"\\<>"}, "a", []int{1, 2, 3}, 1, &marshaling{}}
+	expected := `{"a":"a","b":1,"c":{"a":"` + "\n\r" + `","b":"b","c":"\"\\<>"},"d":[1,2,3],"e":{"a":123,"b":234}}`
+
+	output, err := Marshal(input)
+	if err != nil {
+		t.Errorf("got err = %v, want nil", err)
+	}
+	if expected != string(output) {
+		t.Errorf("got %s, want %s", string(output), expected)
+	}
+}

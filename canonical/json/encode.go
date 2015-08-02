@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"encoding"
 	"encoding/base64"
+	"encoding/json"
 	"math"
 	"reflect"
 	"runtime"
@@ -391,7 +392,7 @@ func newTypeEncoder(t reflect.Type, allowAddr bool) encoderFunc {
 	case reflect.Struct:
 		return newStructEncoder(t)
 	case reflect.Map:
-		return newMapEncoder(t)
+		return newCondEncoder(canonicalEncoder, newMapEncoder(t))
 	case reflect.Slice:
 		return newSliceEncoder(t)
 	case reflect.Array:
@@ -596,6 +597,67 @@ func newStructEncoder(t reflect.Type) encoderFunc {
 		se.fieldEncs[i] = typeEncoder(typeByIndex(t, f.index))
 	}
 	return se.encode
+}
+
+func canonicalEncoder(e *encodeState, v reflect.Value, _ bool) {
+	m, ok := v.Interface().(Marshaler)
+	if !ok {
+		// T doesn't match the interface. Check against *T too.
+		if v.Kind() != reflect.Ptr && v.CanAddr() {
+			m, ok = v.Addr().Interface().(Marshaler)
+			if ok {
+				v = v.Addr()
+			}
+		}
+	}
+	b, err := m.MarshalJSON()
+	if err != nil {
+		e.error(&MarshalerError{v.Type(), err})
+	}
+
+	// canonicalize the json if it's an object
+	b = bytes.TrimSpace(b)
+	if len(b) > 0 && b[0] == '{' {
+		var temp interface{}
+		err = json.Unmarshal(b, &temp)
+		if err != nil {
+			e.error(&MarshalerError{v.Type(), err})
+		}
+		b, err = Marshal(temp)
+		if err != nil {
+			e.error(&MarshalerError{v.Type(), err})
+		}
+	}
+	e.Buffer.Write(b)
+}
+
+type condEncoder struct {
+	canEnc, elseEnc encoderFunc
+}
+
+func (ce *condEncoder) encode(e *encodeState, v reflect.Value, quoted bool) {
+	_, ok := v.Interface().(Marshaler)
+	if !ok {
+		// T doesn't match the interface. Check against *T too.
+		if v.Kind() != reflect.Ptr && v.CanAddr() {
+			_, ok = v.Addr().Interface().(Marshaler)
+			if ok {
+				v = v.Addr()
+			}
+		}
+	}
+	if ok && (v.Kind() != reflect.Ptr || !v.IsNil()) {
+		ce.canEnc(e, v, quoted)
+	} else {
+		ce.elseEnc(e, v, quoted)
+	}
+}
+
+// newCondEncoder returns an encoder that checks whether its value
+// Can and delegates to canEnc if so, else to elseEnc.
+func newCondEncoder(canEnc, elseEnc encoderFunc) encoderFunc {
+	enc := &condEncoder{canEnc: canEnc, elseEnc: elseEnc}
+	return enc.encode
 }
 
 type mapEncoder struct {
