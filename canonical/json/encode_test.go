@@ -6,6 +6,7 @@ package json
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"reflect"
 	"testing"
@@ -527,6 +528,55 @@ func TestEncodeString(t *testing.T) {
 		out := string(b)
 		if out != tt.out {
 			t.Errorf("Marshal(%q) = %#q, want %#q", tt.in, out, tt.out)
+		}
+	}
+}
+
+type CanonicalTestStruct struct {
+	S string
+	F float64
+	I int
+	E *CanonicalTestStruct
+}
+
+func (s *CanonicalTestStruct) String() string {
+	var e interface{} = s.E
+	if s.E == nil {
+		e = "nil"
+	}
+	return fmt.Sprintf("{S:%q F:%v I:%v E:%v}", s.S, s.F, s.I, e)
+}
+
+var encodeCanonicalTests = []struct {
+	in        interface{}
+	out       string
+	expectErr bool
+}{
+	{nil, `null`, false},
+	{&CanonicalTestStruct{}, `{"E":null,"F":0,"I":0,"S":""}`, false},
+	{&CanonicalTestStruct{F: 1.0}, `{"E":null,"F":1,"I":0,"S":""}`, false},
+	// error out on floating numbers
+	{&CanonicalTestStruct{F: 1.2}, ``, true},
+	{&CanonicalTestStruct{S: "foo", E: &CanonicalTestStruct{I: 42}}, `{"E":{"E":null,"F":0,"I":42,"S":""},"F":0,"I":0,"S":"foo"}`, false},
+	// only escape \ and " and keep any other character as-is
+	{"\u0090 \t \\ \n \"", "\"\u0090 \t \\\\ \n \\\"\"", false},
+}
+
+func TestEncodeCanonicalStruct(t *testing.T) {
+	for _, tt := range encodeCanonicalTests {
+		b, err := MarshalCanonical(tt.in)
+		if err != nil {
+			if !tt.expectErr {
+				t.Errorf("MarshalCanonical(%#v) = error(%v), want %s", tt.in, err, tt.out)
+			}
+			continue
+		} else if tt.expectErr {
+			t.Errorf("MarshalCanonical(%#v) expects an error", tt.in)
+			continue
+		}
+		out := string(b)
+		if out != tt.out {
+			t.Errorf("MarshalCanonical(%#v) = %q, want %q", tt.in, out, tt.out)
 		}
 	}
 }

@@ -138,14 +138,19 @@ func nonSpace(b []byte) bool {
 
 // An Encoder writes JSON objects to an output stream.
 type Encoder struct {
-	w   io.Writer
-	err error
+	w         io.Writer
+	err       error
+	canonical bool
 }
 
 // NewEncoder returns a new encoder that writes to w.
 func NewEncoder(w io.Writer) *Encoder {
 	return &Encoder{w: w}
 }
+
+// Canonical causes the encoder to switch to Canonical JSON mode.
+// Read more at: http://wiki.laptop.org/go/Canonical_JSON
+func (enc *Encoder) Canonical() { enc.canonical = true }
 
 // Encode writes the JSON encoding of v to the stream,
 // followed by a newline character.
@@ -156,19 +161,21 @@ func (enc *Encoder) Encode(v interface{}) error {
 	if enc.err != nil {
 		return enc.err
 	}
-	e := newEncodeState()
+	e := newEncodeState(enc.canonical)
 	err := e.marshal(v)
 	if err != nil {
 		return err
 	}
 
-	// Terminate each value with a newline.
-	// This makes the output look a little nicer
-	// when debugging, and some kind of space
-	// is required if the encoded value was a number,
-	// so that the reader knows there aren't more
-	// digits coming.
-	e.WriteByte('\n')
+	if !enc.canonical {
+		// Terminate each value with a newline.
+		// This makes the output look a little nicer
+		// when debugging, and some kind of space
+		// is required if the encoded value was a number,
+		// so that the reader knows there aren't more
+		// digits coming.
+		e.WriteByte('\n')
+	}
 
 	if _, err = enc.w.Write(e.Bytes()); err != nil {
 		enc.err = err
