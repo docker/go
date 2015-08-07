@@ -580,3 +580,12 @@ func TestEncodeCanonicalStruct(t *testing.T) {
 		}
 	}
 }
+
+func TestCanonicalFloatError(t *testing.T) {
+	input := struct{ A float64 }{1.1}
+
+	_, err := MarshalCanonical(input)
+	if err == nil {
+		t.Errorf("want float error, got nil")
+	}
+}
