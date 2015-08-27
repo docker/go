@@ -526,7 +526,13 @@ func (bits floatEncoder) encode(e *encodeState, v reflect.Value, quoted bool) {
 	if math.IsInf(f, 0) || math.IsNaN(f) || (e.canonical && math.Floor(f) != f) {
 		e.error(&UnsupportedValueError{v, strconv.FormatFloat(f, 'g', -1, int(bits))})
 	}
-	b := strconv.AppendFloat(e.scratch[:0], f, 'g', -1, int(bits))
+
+	var b []byte
+	if e.canonical {
+		b = strconv.AppendInt(e.scratch[:0], int64(f), 10)
+	} else {
+		b = strconv.AppendFloat(e.scratch[:0], f, 'g', -1, int(bits))
+	}
 	if quoted {
 		e.WriteByte('"')
 	}

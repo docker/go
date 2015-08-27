@@ -589,3 +589,17 @@ func TestCanonicalFloatError(t *testing.T) {
 		t.Errorf("want float error, got nil")
 	}
 }
+
+func TestCanonicalFloatAsInt(t *testing.T) {
+	in := struct{ A float64 }{1234567}
+
+	b, err := MarshalCanonical(in)
+	if err != nil {
+		t.Fatalf("Marshal(%q): %v", in, err)
+	}
+	out := string(b)
+	expected := `{"A":1234567}`
+	if out != expected {
+		t.Errorf("Marshal(%q) = %#q, want %#q", in, out, expected)
+	}
+}
