@@ -1,7 +1,7 @@
-From 775457d4430a6972f090ae6c1c8bba6ded34a9c4 Mon Sep 17 00:00:00 2001
+From d818992b918abae8c6a61a870cf21280d3fd7a98 Mon Sep 17 00:00:00 2001
 From: Jessica Frazelle <acidburn@docker.com>
 Date: Fri, 7 Aug 2015 12:51:13 -0700
-Subject: [PATCH 2/2] add test for canonical float error
+Subject: [PATCH 2/3] add test for canonical float error
 
 Signed-off-by: Jessica Frazelle <acidburn@docker.com>
 ---
