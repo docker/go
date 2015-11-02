@@ -2,7 +2,7 @@ GO_VERSION=1.5.1
 GO_SRC=/tmp/go/src
 PATCH_DIR=$(CURDIR)/patches
 
-.PHONY: clean download_go_src run_patch update
+.PHONY: clean download_go_src run_patch update docker
 
 define apply_patch
 mkdir -p $(CURDIR)/$(2);
@@ -18,6 +18,13 @@ run_patch: download_go_src
 	$(call apply_patch,encoding/json,canonical/json,json)
 
 update: run_patch clean
+
+docker:
+	docker build --rm --force-rm -t jfrazelle/go .
+
+test: docker
+	docker run --rm jfrazelle/go go test ./...
+
 
 clean:
 	rm -rf ${GO_SRC}
