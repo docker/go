@@ -20,10 +20,10 @@ run_patch: download_go_src
 update: run_patch clean
 
 docker:
-	docker build --rm --force-rm -t jfrazelle/go .
+	docker build --rm --force-rm -t docker/go .
 
 test: docker
-	docker run --rm jfrazelle/go go test ./...
+	docker run --rm docker/go go test ./...
 
 
 clean:
